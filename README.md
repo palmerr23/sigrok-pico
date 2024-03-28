@@ -1,6 +1,6 @@
 This is a fork of https://github.com/pico-coder/sigrok-pico with a single change that offsets the ADC voltage to change the PulseView display to display 1/2scale (0x40) as 0V.
 
-The chagne is to accommodate the input conditioning hardware developed for Silicon Chip magazine.
+The change is to accommodate the input conditioning hardware developed for Silicon Chip magazine.
 
 Please DO NOT offer pull requests to this fork, it will be updated from time to time from the main repo.
 
