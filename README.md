@@ -1,13 +1,8 @@
+This is a fork of https://github.com/pico-coder/sigrok-pico with a single change that offsets the ADC voltage to change the PulseView display to display 1/2scale (0x40) as 0V.
 
-As of 28 Sept 2023 this pull request has been merged into mainline.
-See https://github.com/sigrokproject/libsigrok/pull/181 for testing status.
+The chane is to accommodate the input hardware developed for Silicon Chip magazine.
 
-/////////////////////////////////////////////////////////////////
-
-I have managed to do a cross compile of PulseView for windows.  Instructions to download are here.
-https://github.com/pico-coder/sigrok-pico/blob/main/pulseview/Readme.md
-
-For linux, many people have managed to combine my pull request into a libsigrok build. If you are on linux it's probably a practical experiment to try.  4GB of RAM is recommended for pulseview builds to avoid disk swap issues.  See SigrokBuildNotes.md
+Please DO NOT offer pull requests to this fork, it will be updated from time to time from the main repo.
 
 #
 # sigrok-pico
