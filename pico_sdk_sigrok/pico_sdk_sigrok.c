@@ -1,10 +1,16 @@
 //Raspberry Pi PICO/RP2040 code to implement a logic analyzer and oscilloscope
 
 /**
+ * forked from https://github.com/pico-coder/sigrok-pico/
  * Some Original code from the pico examples project:
  * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+ 
+//#define DEBUG_PRINT  // debug print enabled
+
+// Must use this. First digital pin (GPIO2) is hard coded.
+#define ORIG_PINS	// use pins as defined by pico-coder (see sr_device.h) 
 
 #include <stdio.h>
 #include "pico/stdlib.h" //uart definitions
@@ -32,7 +38,6 @@
 //#define D4_DBG 1
 //#define D4_DBG2 2
 
-
 uint8_t *capture_buf;
 volatile uint32_t c1cnt=0;
 volatile uint32_t c0cnt=0;
@@ -40,7 +45,7 @@ sr_device_t dev;
 volatile uint32_t tstart;
 volatile bool send_resp=false;
 uint8_t txbuf[TX_BUF_SIZE];
-uint16_t txbufidx;
+int txbufidx;
 uint32_t rxbufdidx;
 uint32_t rlecnt;
 uint32_t ccnt=0; //count of characters sent serially
@@ -71,7 +76,7 @@ volatile bool mask_xfer_err;
 
 void my_stdio_usb_out_chars(const char *buf, int length) {
     static uint64_t last_avail_time;
-    uint32_t owner;
+    //uint32_t owner;
     if (tud_cdc_connected()) {
         for (int i = 0; i < length;) {
             int n = length - i;
@@ -80,12 +85,12 @@ void my_stdio_usb_out_chars(const char *buf, int length) {
             if (n) {
                 int n2 = (int) tud_cdc_write(buf + i, (uint32_t)n);
                 tud_task();
-		tud_cdc_write_flush();
+                tud_cdc_write_flush();
                 i += n2;
                 last_avail_time = time_us_64();
             } else {
                 tud_task();
-		tud_cdc_write_flush();
+                tud_cdc_write_flush();
                 if (!tud_cdc_connected() ||
                     (!tud_cdc_write_available() && time_us_64() > last_avail_time + PICO_STDIO_USB_STDOUT_TIMEOUT_US)) {
                     break;
@@ -137,7 +142,7 @@ uint32_t send_slices_D4(sr_device_t *d,uint8_t *dbuf){
    rlecnt=0;
 
    if(d->samples_per_half<=8){
-     my_stdio_usb_out_chars(txbuf,txbufidx);
+     my_stdio_usb_out_chars((const char *)txbuf,txbufidx);
      d->scnt+=d->samples_per_half;
      return txbufidx;
    }
@@ -169,7 +174,7 @@ uint32_t send_slices_D4(sr_device_t *d,uint8_t *dbuf){
          txbuf[txbufidx++]=127;
          rlecnt-=640;
          if(txbufidx>3){   
-            my_stdio_usb_out_chars(txbuf,txbufidx);
+            my_stdio_usb_out_chars((const char *)txbuf,txbufidx);
             ccnt+=txbufidx;
             txbufidx=0;
          }
@@ -197,17 +202,17 @@ uint32_t send_slices_D4(sr_device_t *d,uint8_t *dbuf){
             //chngcnt++;
             //Send intermediate 8..632 RLEs
             if(rlecnt>7) {
-	       int rlemid=rlecnt&0x3F8;
+               int rlemid=rlecnt&0x3F8;
                txbuf[txbufidx++]=(rlemid>>3)+47;
             } 
             //And finally the 0..7 rle along with the new value
             rlecnt&=0x7;
             #ifdef D4_DBG2 //print when sample value changes
- 	       Dprintf("VChang val 0x%X rlecnt %d i%d j%d \n\r",nibcurr,rlecnt,i,j);
-            #endif		  
+                Dprintf("VChang val 0x%X rlecnt %d i%d j%d \n\r",nibcurr,rlecnt,i,j);
+            #endif                  
             txbuf[txbufidx++]=0x80|nibcurr|rlecnt<<4;
             rlecnt=0;
-	  }//nibcurr!=last
+          }//nibcurr!=last
           cword>>=4;
           niblast=nibcurr;
         }//for j
@@ -218,7 +223,7 @@ uint32_t send_slices_D4(sr_device_t *d,uint8_t *dbuf){
        #endif
        //Emperically found that transmitting groups of around 32B gives optimum bandwidth
        if(txbufidx>=64){
-         my_stdio_usb_out_chars(txbuf,txbufidx);
+         my_stdio_usb_out_chars((const char *)txbuf,txbufidx);
          ccnt+=txbufidx;
          txbufidx=0;
        }
@@ -245,11 +250,11 @@ uint32_t send_slices_D4(sr_device_t *d,uint8_t *dbuf){
       rlecnt=0;
     }
     if(txbufidx){
-       my_stdio_usb_out_chars(txbuf,txbufidx);
+       my_stdio_usb_out_chars((const char *)txbuf,txbufidx);
        ccnt+=txbufidx;
        txbufidx=0;
     }
-
+                return txbufidx;        //rp
 }//send_slices_D4
 
 //Send a digital sample of multiple bytes with the 7 bit encoding
@@ -308,7 +313,7 @@ void inline check_rle(){
 //Send txbuf to usb based on an input threshold
 void check_tx_buf(uint16_t cnt){
   if(txbufidx>=cnt){
-     my_stdio_usb_out_chars(txbuf,txbufidx);
+     my_stdio_usb_out_chars((const char *)txbuf,txbufidx);
      ccnt+=txbufidx;
      txbufidx=0;
   }
@@ -369,7 +374,7 @@ void __attribute__ ((noinline)) send_slices_2B(sr_device_t *d,uint8_t *dbuf){
        cval=(*((uint16_t *) (dbuf+rxbufdidx)));
        rxbufdidx+=2;
        if(cval==lval){
-	   rlecnt++;
+           rlecnt++;
          }
        else{
           check_rle();
@@ -391,7 +396,7 @@ void __attribute__ ((noinline)) send_slices_4B(sr_device_t *d,uint8_t *dbuf){
        cval<<=11;
        cval>>=11;
        if(cval==lval){
-	   rlecnt++;
+           rlecnt++;
          }
        else{
          check_rle();
@@ -420,18 +425,18 @@ uint32_t send_slices_analog(sr_device_t *d,uint8_t *dbuf,uint8_t *abuf){
         d->scnt+=d->samples_per_half;
    }
    txbufidx=0;
-   uint32_t lval=0;
+   //uint32_t lval=0;
    for(int s=0;s<samp_remain;s++){
          if(d->d_mask){
             cval=get_cval(dbuf);
             tx_d_samp(d,cval);
-	    //Dprintf("s %d cv %X bps %d idx t %d r %d \n\r",s,cval,d_dma_bps,txbufidx,rxbufdidx);
+            //Dprintf("s %d cv %X bps %d idx t %d r %d \n\r",s,cval,d_dma_bps,txbufidx,rxbufdidx);
          }
          for(char i=0;i<d->a_chan_cnt;i++){
            txbuf[txbufidx]=(abuf[rxbufaidx]>>1)|0x80;
            txbufidx++;
            rxbufaidx++;
-	   //Dprintf("av %X cnt %d idx t %d r %d\n\r",abuf[rxbufaidx-1],d->a_chan_cnt,txbufidx,rxbufaidx);
+           //Dprintf("av %X cnt %d idx t %d r %d\n\r",abuf[rxbufaidx-1],d->a_chan_cnt,txbufidx,rxbufaidx);
          } 
          //Since this doesn't support RLEs we don't need to buffer
          //extra bytes to prevent txbuf overflow, but this value
@@ -439,6 +444,7 @@ uint32_t send_slices_analog(sr_device_t *d,uint8_t *dbuf,uint8_t *abuf){
          check_tx_buf(TX_BUF_THRESH);
    }//for s
    check_tx_buf(1);
+         return 0; //rp
 }//send_slices_analog
 
 
@@ -449,10 +455,10 @@ int check_half(sr_device_t *d,volatile uint32_t *tstsa0,volatile uint32_t *tstsa
                  volatile uint32_t *tstsd1,volatile uint32_t *t_addra0,volatile uint32_t *t_addrd0,
                  uint8_t *d_start_addr,uint8_t *a_start_addr, bool mask_xfer_err){
   int a0busy,d0busy;
-  uint64_t stime,etime,dtime;
+  //uint64_t stime,etime,dtime;
   volatile uint32_t *piodbg1,*piodbg2;
   volatile uint8_t piorxstall1,piorxstall2;
-  stime=time_us_64();
+  //stime=time_us_64();
   a0busy=((*tstsa0)>>24)&1;
   d0busy=((*tstsd0)>>24)&1;
 
@@ -480,9 +486,9 @@ int check_half(sr_device_t *d,volatile uint32_t *tstsa0,volatile uint32_t *tstsa
        //Note that we must use the "alias" versions of the DMA CSRs to prevent writes from triggering them.
        //Since we swap the csr pointers we determine the other half from the address offsets.
        uint8_t myachan=(((uint32_t) tstsa0)>>6)&0xF;
-       uint8_t otherachan=(((uint32_t) tstsa1)>>6)&0xF;
+      // uint8_t otherachan=(((uint32_t) tstsa1)>>6)&0xF;
        uint8_t mydchan=(((uint32_t)tstsd0)>>6)&0xF;
-       uint8_t otherdchan=(((uint32_t)tstsd1)>>6)&0xF;
+       //uint8_t otherdchan=(((uint32_t)tstsd1)>>6)&0xF;
        //  Dprintf("my stts pre a 0x%X d 0x%X\n\r",*tstsa0,*tstsd0); 
        //Set my chain to myself so that I can't chain to the other. 
        volatile uint32_t ttmp;
@@ -499,7 +505,7 @@ int check_half(sr_device_t *d,volatile uint32_t *tstsa0,volatile uint32_t *tstsa
 
 
        if(d->a_mask){
-	  send_slices_analog(d,d_start_addr,a_start_addr);
+          send_slices_analog(d,d_start_addr,a_start_addr);
        }
        else if(d_dma_bps==0){
           send_slices_D4(d,d_start_addr);
@@ -537,35 +543,36 @@ int check_half(sr_device_t *d,volatile uint32_t *tstsa0,volatile uint32_t *tstsa
        //half and all the remaining samples we need are in the 2nd half.
        //Note that in continuous mode num_samples isn't defined.
        uint8_t proc_fail;
-       proc_fail=(~(((((*tstsa1)>>24)&1)||(d->a_mask==0))
-		    &&((((*tstsd1)>>24)&1)||(d->d_mask==0)))&1);
+       //proc_fail=(~(((((*tstsa1)>>24)&1)||(d->a_mask==0))
+                         proc_fail=(!(((((*tstsa1)>>24)&1)||(d->a_mask==0))
+                    &&((((*tstsd1)>>24)&1)||(d->d_mask==0)))&1);
        //Dprintf("pf 0x%X 0x%X %d\n\r",*tstsa1,*tstsd1,proc_fail);
        //       if(mask_xfer_err
        //     || ((piorxstall1==0)
        //      &&((((*tstsa1)>>24)&1)||(d->a_mask==0))
-       //		  &&((((*tstsd1)>>24)&1)||(d->d_mask==0)))){
+       //                  &&((((*tstsd1)>>24)&1)||(d->d_mask==0)))){
        if(mask_xfer_err
-	      || ((piorxstall1==0)
+              || ((piorxstall1==0)
                   &&(adcfail==0)
                   &&(piorxstall2==0)
                   &&(proc_fail==0))){
-	   //           Dprintf("h\n\r");
+           //           Dprintf("h\n\r");
            return 1;
         }else{
 
            if(piorxstall1 || piorxstall2){
-	     Dprintf("***Abort PIO RXSTALL*** %d %d half %d\n\r",piorxstall1,piorxstall2,num_halves);
+             Dprintf("***Abort PIO RXSTALL*** %d %d half %d\n\r",piorxstall1,piorxstall2,num_halves);
            }
            if(proc_fail){
                Dprintf("***Abort DMA ovrflow*** half %d \n\r",num_halves);
-	   }
+           }
            if(adcfail){
                Dprintf("***Abort ADC ovrflow*** half %d \n\r",num_halves);
-	   }
+           }
            d->aborted=true;
            //Issue end of trace markers to host
            //The main loop also sends these periodically until the host is done..
- 	   my_stdio_usb_out_chars("!!!",3);
+            my_stdio_usb_out_chars("!!!",3);
            //Dprintf("scnt %u \n\r",d->scnt);
            //Dprintf("a st %u msk %u\n\r",(*tstsa1),d->a_mask);
            //Dprintf("d st %u msk %u\n\r",(*tstsd1),d->d_mask);
@@ -579,7 +586,7 @@ int check_half(sr_device_t *d,volatile uint32_t *tstsa0,volatile uint32_t *tstsa
 //streaming performance, so it's left in core0.
 void dma_check(sr_device_t *d){
         if(d->sending&& d->started && ((d->scnt<d->num_samples)||d->cont)){  
-          uint32_t a,b;
+          //uint32_t a,b;
           int ret;
           c0cnt++;
           if(lowerhalf){
@@ -605,14 +612,14 @@ void dma_check(sr_device_t *d){
 //to monitoring DMA activity and sending trace data.
 //Most of the time this loop is stalled with wfes (wait for events).
 void core1_code(){
-   uint32_t testinc=0x0;
+   //uint32_t testinc=0x0;
    int intin;
-   uint8_t uartch;
-   uint32_t ctime;
-   uint32_t cval;
-   volatile uint32_t *usbctrl; 
-   usbctrl=(volatile uint32_t *)(USBCTRL_BASE);
-   uint32_t usb_last=1,usb_curr;
+   //uint8_t uartch;
+   //uint32_t ctime;
+   //uint32_t cval;
+   //volatile uint32_t *usbctrl; 
+   //usbctrl=(volatile uint32_t *)(USBCTRL_BASE);
+   //uint32_t usb_last=1,usb_curr;
    while(true){
      //The wait for event (wfe) puts core1 in an idle state
      //Each core instruction takes a memory cycle, as does each core memory or IO register read.
@@ -626,26 +633,30 @@ void core1_code(){
 
      if(dev.started){
         c1cnt++;
-	__wfe();
         __wfe();
-        __wfe();
-        __wfe(); 
-	__wfe();
-	__wfe();
         __wfe();
         __wfe();
         __wfe(); 
-	__wfe();
+        __wfe();
+        __wfe();
+        __wfe();
+        __wfe();
+        __wfe(); 
+        __wfe();
      }     
      if(dev.started==false){
       //always drain all defined uarts as if that is not done it can 
        //effect the usb serial CDC stability
        //these are generally rare events caused by noise/reset events
        //and thus not checked when dev.started 
-       while (uart_is_readable_within_us(uart0, 0)) {
-            uartch = uart_getc(uart0);
+#ifdef DEBUG_PRINT
+       while (uart_is_readable_within_us(DEBUG_UART, 0)) {
+       //     uartch = uart_getc(DEBUG_UART);
+                          intin = (int)uart_getc(DEBUG_UART);
        }
-     }    
+#endif 
+     }
+
      //look for commands on usb cdc 
      intin=getchar_timeout_us(0);
      //The '+' is the only character we track during normal sampling because it can end
@@ -666,28 +677,30 @@ void core1_code(){
 }
 
 int main(){
-    char cmdstr[20];
-    int cmdstrptr=0;
-    char charin,tmpchar;
-    long int i,j;
-    uint16_t len;
-    uint32_t tmpint,tmpint2;
+    //char cmdstr[20];
+    //int cmdstrptr=0;
+    //char charin,tmpchar;
+    //long int i,j;
+    //uint16_t len;
+    //uint32_t tmpint,tmpint2;
 
 
     dma_channel_config acfg0,acfg1,pcfg0,pcfg1;
     uint admachan0,admachan1,pdmachan0,pdmachan1;
     PIO pio = pio0;
     uint piosm=0;
-    float ddiv;
-    int res;
+    //float ddiv;
+    //int res;
     bool init_done=false;
-    uint64_t starttime,endtime;
+    //uint64_t starttime,endtime;
     set_sys_clock_khz(SYS_CLK_BASE,true);
     stdio_usb_init();
-    uart_set_format(uart0,8,1,1);
-    uart_init(uart0,921600);
+#ifdef DEBUG_PRINT
+    uart_set_format(DEBUG_UART,8,1,1);
+    uart_init(DEBUG_UART,UART_BAUD);
     gpio_set_function(0, GPIO_FUNC_UART);
     gpio_set_function(1, GPIO_FUNC_UART);   
+#endif
     sleep_us(100000);    
     Dprintf("\n\rHello from PICO sigrok device \n\r");
 
@@ -709,7 +722,8 @@ int main(){
     adc_gpio_init(27);
     adc_gpio_init(28);
     adc_init();
-
+                *ADC_OCLK_SRC = 0x820; //RP
+                *ADC_OCLK_DIV = ADC_CLK_DIV; //RP - possibly the default value
     multicore_launch_core1(core1_code);
 
 
@@ -746,11 +760,12 @@ int main(){
 
     //Use the debug version of the count registers because the count of the DMA_TRANS_COUNT is not
     //visible if it is not active
-    volatile uint32_t *tcountdbga0,*tcountdbga1,*tcountdbgd0,*tcountdbgd1;
+    volatile uint32_t *tcountdbga0,*tcountdbgd0;
+                //volatile uint32_t *tcountdbga1,*tcountdbgd1;
     tcountdbga0=(volatile uint32_t *)(DMA_BASE+0x40*admachan0+0x804); //DMA_TRANS_COUNT DBGoffset
-    tcountdbga1=(volatile uint32_t *)(DMA_BASE+0x40*admachan1+0x804); //DMA_TRANS_COUNT DBGoffset
+   // tcountdbga1=(volatile uint32_t *)(DMA_BASE+0x40*admachan1+0x804); //DMA_TRANS_COUNT DBGoffset
     tcountdbgd0=(volatile uint32_t *)(DMA_BASE+0x40*pdmachan0+0x804); //DMA_TRANS_COUNT DBGoffset
-    tcountdbgd1=(volatile uint32_t *)(DMA_BASE+0x40*pdmachan1+0x804); //DMA_TRANS_COUNT DBGoffset
+    //tcountdbgd1=(volatile uint32_t *)(DMA_BASE+0x40*pdmachan1+0x804); //DMA_TRANS_COUNT DBGoffset
 
     taddra0=(volatile uint32_t *)(DMA_BASE+0x40*admachan0+0x4); //DMA_WRITE_addr offset
     taddra1=(volatile uint32_t *)(DMA_BASE+0x40*admachan1+0x4); //DMA_WRITE_addr offset
@@ -762,14 +777,14 @@ int main(){
     tstsd0=(volatile uint32_t *)(DMA_BASE+0x40*pdmachan0+0xc); //DMA_WRITE_sts offset
     tstsd1=(volatile uint32_t *)(DMA_BASE+0x40*pdmachan1+0xc); //DMA_WRITE_sts offset
     //PIO status
-    volatile uint32_t *pioctrl,*piofstts,*piodbg,*pioflvl;
-    pioctrl=(volatile uint32_t *)(PIO0_BASE); //PIO CTRL
-    piofstts=(volatile uint32_t *)(PIO0_BASE+0x4); //PIO FSTAT
-    piodbg=(volatile uint32_t *)(PIO0_BASE+0x8); //PIO DBG
-    pioflvl=(volatile uint32_t *)(PIO0_BASE+0x10); //PIO FLVL
+   // volatile uint32_t *pioctrl,*piofstts,*piodbg,*pioflvl;
+    //pioctrl=(volatile uint32_t *)(PIO0_BASE); //PIO CTRL
+   // piofstts=(volatile uint32_t *)(PIO0_BASE+0x4); //PIO FSTAT
+   // piodbg=(volatile uint32_t *)(PIO0_BASE+0x8); //PIO DBG
+   // pioflvl=(volatile uint32_t *)(PIO0_BASE+0x10); //PIO FLVL
 
-    volatile uint32_t *pio0sm0clkdiv;
-    pio0sm0clkdiv=(volatile uint32_t *)(PIO0_BASE+0xc8); 
+    //volatile uint32_t *pio0sm0clkdiv;
+    //pio0sm0clkdiv=(volatile uint32_t *)(PIO0_BASE+0xc8); 
     //Give High priority to DMA to ensure we don't overflow the PIO or DMA fifos
     //The DMA controller must read across the common bus to read the PIO fifo so enabled both reads and write
     bus_ctrl_hw->priority = BUSCTRL_BUS_PRIORITY_DMA_W_BITS | BUSCTRL_BUS_PRIORITY_DMA_R_BITS;
@@ -812,8 +827,8 @@ int main(){
           if(send_resp){
             int mylen=strlen(dev.rspstr);
             //Don't mix printf with direct to usb commands
-	    //printf("%s",dev.rspstr);
-	    my_stdio_usb_out_chars(dev.rspstr,mylen);
+            //printf("%s",dev.rspstr);
+            my_stdio_usb_out_chars(dev.rspstr,mylen);
             send_resp=false;
            }
          //Dprintf("ss %d %d",dev.sending,dev.started);
@@ -828,7 +843,9 @@ int main(){
               Dprintf("Boost up\n\r");
               set_sys_clock_khz(SYS_CLK_BOOST_FREQ,true);
               //UART is based on sys_clk so must be reprogrammed
-              uart_init(uart0,UART_BAUD);
+	#ifdef DEBUG_PRINT
+              uart_init(DEBUG_UART,UART_BAUD);
+	#endif
            }
 #endif
            lowerhalf=1;
@@ -865,7 +882,7 @@ int main(){
            uint32_t buff_chunks=(DMA_BUF_SIZE/chunk_size)&0xFFFFFFFE;
            //round up and force power of two since we cut it in half
            uint32_t chunks_needed=((dev.num_samples/chunk_samples)+2)&0xFFFFFFFE;
-	   Dprintf("Initial buf calcs nibbles d %d a %d t %d \n\r",d_nibbles,a_nibbles,t_nibbles);
+           Dprintf("Initial buf calcs nibbles d %d a %d t %d \n\r",d_nibbles,a_nibbles,t_nibbles);
            Dprintf("chunk size %d samples %d buff %d needed %d\n\r",chunk_size,chunk_samples,buff_chunks,chunks_needed);
            Dprintf("dbytes per chunk %d dig samples per chunk %d\n\r",dig_bytes_per_chunk,dig_samples_per_chunk);
            //If all of the samples we need fit in two half buffers or less then we can mask the error
@@ -891,13 +908,13 @@ int main(){
            //Dprintf("Final sizes d %d a %d mask err %d samples per half %d\n\r"
            //,dev.d_size,dev.a_size,mask_xfer_err,dev.samples_per_half);
 
-           //Clear any previous ADC over/underflow	    
+           //Clear any previous ADC over/underflow            
             volatile uint32_t *adcfcs;
             adcfcs=(volatile uint32_t *)(ADC_BASE+0x8);//ADC FCS
             *adcfcs|=0xC00;
       
-	   
-	  //Ensure any previous dma is done 
+           
+          //Ensure any previous dma is done 
           //The cleanup loop also does this but it doesn't hurt to do it twice
           dma_channel_abort(admachan0);
           dma_channel_abort(admachan1);
@@ -906,7 +923,7 @@ int main(){
           //Enable the initial chaing from the first half to 2nd, further chains are enabled based 
           //on whether we can parse each half in time.
           channel_config_set_chain_to(&acfg0,admachan1);
-          channel_config_set_chain_to(&pcfg0,pdmachan1);	  
+          channel_config_set_chain_to(&pcfg0,pdmachan1);          
 
 
           num_halves=0;
@@ -920,14 +937,14 @@ int main(){
           volatile uint32_t *adcdiv;
           adcdiv=(volatile uint32_t *)(ADC_BASE+0x10);//ADC DIV
           //   Dprintf("adcdiv start %u\n\r",*adcdiv);
-	  //	  Dprintf("starting d_nps %u a_chan_cnt %u d_size %u a_size %u a_mask %X\n\r"
+          //          Dprintf("starting d_nps %u a_chan_cnt %u d_size %u a_size %u a_mask %X\n\r"
           //         ,dev.d_nps,dev.a_chan_cnt,dev.d_size,dev.a_size,dev.a_mask);
           //Dprintf("start offsets d0 0x%X d1 0x%X a0 0x%X a1 0x%X samperhalf %u\n\r"
           //    ,dev.dbuf0_start,dev.dbuf1_start,dev.abuf0_start,dev.abuf1_start,dev.samples_per_half);
           //Dprintf("starting data buf values 0x%X 0x%X\n\r",capture_buf[dev.dbuf0_start],capture_buf[dev.dbuf1_start]);
-          uint32_t adcdivint=48000000ULL/(dev.sample_rate*dev.a_chan_cnt);
+          uint32_t adcdivint=ADC_CLK_SPEED/(dev.sample_rate*dev.a_chan_cnt);
           if(dev.a_chan_cnt){
- 	     adc_run(false);
+              adc_run(false);
              //             en, dreq_en,dreq_thresh,err_in_fifo,byte_shift to 8 bit
              adc_fifo_setup(false, true,   1,           false,       true); 
              adc_fifo_drain();
@@ -939,19 +956,19 @@ int main(){
              //-A value of 0 actually creates a 500khz sample clock.
              //-Values below 96 don't work well (the SDK has comments about it
              //in the adc_set_clkdiv document)
-	     //It is also import to subtract one from the desired divisor
-	     //because the period of ADC clock is 1+INT+FRAC/256
-	     //For the case of a requested 500khz clock, we would normally write
+             //It is also import to subtract one from the desired divisor
+             //because the period of ADC clock is 1+INT+FRAC/256
+             //For the case of a requested 500khz clock, we would normally write
              //a divisor of 95, but doesn't give the desired result, so we use 
              //the 0 value instead.
              //Fractional divisors should generally be avoided because it creates
              //skew with digital samples.
              uint8_t adc_frac_int;
-             adc_frac_int=(uint8_t)(((48000000ULL%dev.sample_rate)*256ULL)/dev.sample_rate);
+             adc_frac_int=(uint8_t)(((ADC_CLK_SPEED%dev.sample_rate)*256ULL)/dev.sample_rate);
              if(adcdivint<=96){ 
                *adcdiv=0;
              }else{
-	       *adcdiv=((adcdivint-1)<<8)|adc_frac_int; 
+               *adcdiv=((adcdivint-1)<<8)|adc_frac_int; 
              }
              //Dprintf("adcdiv %u frac %d\n\r",*adcdiv,adc_frac_int);
 
@@ -1009,7 +1026,7 @@ for faster parsing.
              // with autopush enabled.
              pio_sm_config c = pio_get_default_sm_config();
              //start at GPIO2 (keep 0 and 1 for uart)
-             sm_config_set_in_pins(&c, 2);
+             sm_config_set_in_pins(&c, DIG_STARTPIN);
              sm_config_set_wrap(&c, offset, offset);
 
              uint16_t div_int;              
@@ -1017,7 +1034,7 @@ for faster parsing.
              div_int=frequency_count_khz(CLOCKS_FC0_SRC_VALUE_CLK_SYS)*1000/dev.sample_rate;
              if(div_int<1) div_int=1;
              frac_int=(uint8_t)(((frequency_count_khz(CLOCKS_FC0_SRC_VALUE_CLK_SYS)*1000%dev.sample_rate)*256ULL)/dev.sample_rate);
-	     //             Dprintf("PIO sample clk %u divint %d divfrac %d \n\r",dev.sample_rate,div_int,frac_int);
+             //             Dprintf("PIO sample clk %u divint %d divfrac %d \n\r",dev.sample_rate,div_int,frac_int);
              //Unlike the ADC, the PIO int divisor does not have to subtract 1.
              //Frequency=sysclkfreq/(CLKDIV_INT+CLKDIV_FRAC/256)
              sm_config_set_clkdiv_int_frac(&c,div_int,frac_int);
@@ -1035,16 +1052,16 @@ for faster parsing.
              pio_sm_restart(pio, piosm);
 
 #ifndef NODMA
-	     channel_config_set_dreq(&pcfg0, pio_get_dreq(pio,piosm,false));
+             channel_config_set_dreq(&pcfg0, pio_get_dreq(pio,piosm,false));
              channel_config_set_dreq(&pcfg1, pio_get_dreq(pio,piosm,false));
-	     
-	     //                       number    config   buffer target                  piosm          xfer size  trigger
+             
+             //                       number    config   buffer target                  piosm          xfer size  trigger
              dma_channel_configure(pdmachan0,&pcfg0,&(capture_buf[dev.dbuf0_start]),&pio->rxf[piosm],dev.d_size>>2,true);
              dma_channel_configure(pdmachan1,&pcfg1,&(capture_buf[dev.dbuf1_start]),&pio->rxf[piosm],dev.d_size>>2,false);
 #endif
 
-	     //This is done later so that we start everything as close in time as possible
-	     //             pio_sm_set_enabled(pio, piosm, true);           
+             //This is done later so that we start everything as close in time as possible
+             //             pio_sm_set_enabled(pio, piosm, true);           
            } //dev.d_mask
           //These must be at their initial value,(or zero for the 2ndhalf) otherwise it indicates they have started to countdown
           //Dprintf("Tcount start d %u %u a %u %u\n\r",*tcountd0,*tcountd1,*tcounta0,*tcounta1);
@@ -1074,8 +1091,8 @@ for faster parsing.
           //Dprintf("DMA ctr reg addrs a %p %p d %p %p\n\r",(void *) tstsa0,(void *)tstsa1,(void *)tstsd0,(void *)tstsd1);
           //Dprintf("DMA ctrl reg a 0x%X 0x%X d 0x%X 0x%X\n\r",*tstsa0,*tstsa1,*tstsd0,*tstsd1);
           //Enable logic and analog close together for best possible alignment
-	  //warning - do not put printfs or similar things here...
-	  tstart=time_us_32();
+          //warning - do not put printfs or similar things here...
+          tstart=time_us_32();
           adc_run(true); //enable free run sample mode
           pio_sm_set_enabled(pio, piosm, true);           
           dev.started=true;
@@ -1085,15 +1102,15 @@ for faster parsing.
         dma_check(&dev);
 
 
-	//In high verbosity modes the host can miss the "!" so send these until it sends a "+"
-	if(dev.aborted==true){
-	  Dprintf("sending abort !\n\r");
-	  my_stdio_usb_out_chars("!!!",3);
+        //In high verbosity modes the host can miss the "!" so send these until it sends a "+"
+        if(dev.aborted==true){
+          Dprintf("sending abort !\n\r");
+          my_stdio_usb_out_chars("!!!",3);
            sleep_us(200000);
         }
        //if we abort or normally finish a run sending gets dropped
        if((dev.sending==false)&&(init_done==true)){
-	 //Dprintf("Ending PIO ctrl 0x%X fstts 0x%X dbg 0x%X lvl 0x%X\n\r",*pioctrl,*piofstts,*piodbg,*pioflvl);
+         //Dprintf("Ending PIO ctrl 0x%X fstts 0x%X dbg 0x%X lvl 0x%X\n\r",*pioctrl,*piofstts,*piodbg,*pioflvl);
              //The end of sequence byte_cnt uses a "$<byte_cnt>+" format.
              //Send the byte_cnt to ensure no bytes were lost
              if(dev.aborted==false){
@@ -1102,12 +1119,12 @@ for faster parsing.
                //isn't dropped on the wire
                sleep_us(100000);
                Dprintf("Cleanup bytecnt %d\n\r",ccnt);
-  	       sprintf(brsp,"$%d%c",ccnt,'+');
+                 sprintf(brsp,"$%d%c",ccnt,'+');
                puts_raw(brsp);
              }
 
 #ifdef NODMA
-	     // if dma is disabled and sample sizes are small this can be used
+             // if dma is disabled and sample sizes are small this can be used
              // to pull the raw sample data from the pio fifos.
              uint lvl;
              lvl=pio_sm_get_rx_fifo_level(pio,piosm);
@@ -1132,20 +1149,20 @@ for faster parsing.
              init_done=false;
 
 
-	     
-	     //Print USB Endpoint controls in the DPSRAM, which is at the base of USBCTRL
-	     //0x0 is setup packet, 
-	     //0x8-0xfc - EP in/out buffer control
-	     //0x100 - EP0 buffer 0 (in and out)
-	     //0x140 - EPO buffer 1
-	     //0x180 - data buffers
-	     /*
+             
+             //Print USB Endpoint controls in the DPSRAM, which is at the base of USBCTRL
+             //0x0 is setup packet, 
+             //0x8-0xfc - EP in/out buffer control
+             //0x100 - EP0 buffer 0 (in and out)
+             //0x140 - EPO buffer 1
+             //0x180 - data buffers
+             /*
              volatile uint32_t *usbctrl; 
              usbctrl=(volatile uint32_t *)(USBCTRL_BASE);
              for(i=0;i<256;i+=4){ //It's a 4k space, but everything above this is zero
                Dprintf("0x%03X %8X %8X %8X %8X \n\r",i*4,usbctrl[i],usbctrl[i+1],usbctrl[i+2],usbctrl[i+3]);
-	     }
-	     */
+             }
+             */
            
              //Print out debug information after completing, rather than before so that it doesn't 
              //delay the start of a capture
@@ -1163,9 +1180,11 @@ for faster parsing.
 #ifdef SYS_CLK_BOOST_EN 
            //Drop down to base to reduce power when not sampling
            set_sys_clock_khz(SYS_CLK_BASE,true);
-           uart_init(uart0,UART_BAUD);
-           Dprintf("Boost down\n\r");
+	#ifdef DEBUG_PRINT
+           uart_init(DEBUG_UART,UART_BAUD);
 #endif
+           Dprintf("Boost down\n\r");
+	#endif
         }//i sending==false
    }//while(1)
  
@@ -1198,7 +1217,7 @@ for faster parsing.
            matches|=(~cval & tlval & d->chgmask);
          }
          if(matches==all_mask){
-	   //Dprintf("Triggered c 0x%X l 0x%X \n\r",cval,tlval);
+           //Dprintf("Triggered c 0x%X l 0x%X \n\r",cval,tlval);
            d->triggered=true;
            //This sends the last val on a trigger because SW based trigger on the host needs to see its
            //value so that rising/falling/edge triggeers will fire there too.
@@ -1208,7 +1227,7 @@ for faster parsing.
               txbuf[txbufidx]=(cbyte<<b)|lbyte|0x80;
               lbyte=cbyte>>(7-b);
               tlval>>=8;
-	      txbufidx++;
+              txbufidx++;
            } //for b          
          }//matches==all_mask
          d->notfirst=true;

@@ -1,15 +1,33 @@
 //Pin usage
-//GP0 and 1 are reserved for debug uart
-//GP2-GP22 are digital inputs
 //GP23 controls power supply modes and is not a board input
 //GP24-25 are not on the board and not used
 //GP26-28 are ADC.
+// #ifdef ORIG_PINS
+	//GP0 and 1 are reserved for debug uart
+	//GP2-GP22 are 21 digital inputs
+// Alt pins (#undef ORIGINAL_PINS)
+	//GP20 and 21 are reserved for debug uart
+	//GP02-GP29 are 20 digital inputs
+
 //number of analog channels
 #define NUM_A_CHAN 3
-//number of digital channels
-#define NUM_D_CHAN 21
-//Mask of bits 22:2 to use as inputs - 
-#define GPIO_D_MASK 0x7FFFFC
+// digital channels and debug pins
+#ifdef ORIG_PINS
+	#define DEBUG_TXPIN 0
+	#define DEBUG_RXPIN 1
+	#define DEBUG_UART uart0
+	#define DIG_STARTPIN 2
+	#define NUM_D_CHAN 20	// was 21 RP 
+	#define GPIO_D_MASK 0x7FFFFC // Mask bits 21:2 to use as inputs 
+#else
+	#define DEBUG_TXPIN 20
+	#define DEBUG_RXPIN 21
+	#define DEBUG_UART uart1
+	#define DIG_STARTPIN 0
+	#define NUM_D_CHAN 20 
+	#define GPIO_D_MASK 0x0FFFFF // Mask bits 19:0 to use as inputs 
+#endif
+
 //Storage size of the DMA buffer.  The buffer is split into two halves so that when the first
 //buffer fills we can send the trace data serially while the other buffer is DMA'dinto
 #define DMA_BUF_SIZE 220000
@@ -29,7 +47,14 @@
 #define TX_BUF_THRESH 20
 //Base value of sys_clk in khz.  Must be <=125Mhz per RP2040 spec and a multiple of 24Mhz
 //to support integer divisors of the PIO clock and ADC clock
-#define SYS_CLK_BASE 120000
+#define SYS_CLK_BASE 240000 // (kHz) RP changed from 120000
+#define ADC_CLK_SPEED 240000000ULL // RP was 48000000ULL
+#define ADC_CLK_DIV 0x100 // 0x0 gives 1.1Msps, 0x100 gives 4.1Msps, 0x200 gives 2.1Msps and 0x300 gives 1.4Msps. 
+
+// ADC clock registers redefined for simplicity
+#define ADC_OCLK_SRC ((uint32_t*)0x40008060)
+#define ADC_OCLK_DIV ((uint32_t*)0x40008064)
+
 //Boosted sys_clk in khz.  Runs the part above its specifed frequency limit to support faster
 //processing of digital run length encoding which in some cases may allow for faster
 //streaming of digital only data.
@@ -40,9 +65,10 @@
 //The authors PICO failed at 288Mhz, but testing with 240Mhz seemed reliable
 //#define SYS_CLK_BOOST_EN 1
 //#define SYS_CLK_BOOST_FREQ 240000
+
 int Dprintf(const char *fmt, ...)
 {
-  
+#ifdef DEBUG_PRINT  
     va_list argptr;
     int len = 1;
     char    _dstr[256];
@@ -56,16 +82,18 @@ int Dprintf(const char *fmt, ...)
         if ( (len > 0) && (len < 240 ) )
         {
 
-    uart_puts(uart0,_dstr);
-    uart_tx_wait_blocking(uart0);
+    uart_puts(DEBUG_UART,_dstr);
+    uart_tx_wait_blocking(DEBUG_UART);
         }
          else{
-         uart_puts(uart0,"UART OVRFLW");
-        uart_tx_wait_blocking(uart0);
+         uart_puts(DEBUG_UART,"UART OVRFLW");
+        uart_tx_wait_blocking(DEBUG_UART);
          
              }
     return len;
- 
+#else
+		return 0;
+#endif	
 } 
 typedef struct sr_device {
   uint32_t sample_rate;
@@ -153,7 +181,7 @@ void tx_init(sr_device_t *d){
     d->d_chan_cnt=0;
     for(int i=0;i<NUM_D_CHAN;i++){
        if(((d->d_mask)>>i)&1){
-	 //    Dprintf("i %d inv %d mask %X\n\r",i,invld,d->d_mask);
+         //    Dprintf("i %d inv %d mask %X\n\r",i,invld,d->d_mask);
           d->d_chan_cnt++;
        }
     }
@@ -175,7 +203,7 @@ int process_char(sr_device_t *d,char charin){
      Dprintf("RST* %d\n\r",d->sending);
      return 0;
   }else if((charin=='\r')||(charin=='\n')){
-    d->cmdstr[d->cmdstrptr]=0;
+    d->cmdstr[(int)d->cmdstrptr]=0;
     switch(d->cmdstr[0]){
     case 'i':
        //SREGEN,AxxyDzz,00 - num analog, analog size, num digital,version
@@ -185,7 +213,7 @@ int process_char(sr_device_t *d,char charin){
        break;
      case 'R':
        tmpint=atol(&(d->cmdstr[1]));
-       if((tmpint>=5000)&&(tmpint<=120000016)){ //Add 16 to support cfg_bits
+       if((tmpint>=5000)&&(tmpint<=(240000000ULL+16))){ //Add 16 to support cfg_bits
           d->sample_rate=tmpint;
           //Dprintf("SMPRATE= %u\n\r",d->sample_rate);
           ret=1;
@@ -210,9 +238,9 @@ int process_char(sr_device_t *d,char charin){
      case 'a':
          tmpint=atoi(&(d->cmdstr[1])); //extract channel number
          if(tmpint>=0){
-	   //scale and offset are both in integer uVolts
+           //scale and offset are both in integer uVolts
            //separated by x
-            sprintf(d->rspstr,"25700x0");  //3.3/(2^7) and 0V offset
+            sprintf(d->rspstr,"25700x-1644800");  //3.3/(2^7) and 1.65V offset x 10^6
             //Dprintf("ASCL%d\n\r",tmpint);
             ret=1;
          }else{
@@ -221,7 +249,7 @@ int process_char(sr_device_t *d,char charin){
           }
            break;
       case 'F': //fixed set of samples
-	   Dprintf("STRT_FIX\n\r");
+           Dprintf("STRT_FIX\n\r");
            tx_init(d);
            d->cont=0;
            ret=0;
@@ -233,30 +261,30 @@ int process_char(sr_device_t *d,char charin){
             ret=0;
             break;
       case 't': //trigger -format tvxx where v is value and xx is two digit channel 
-	/*HW trigger depracated
-	    tmpint=d->cmdstr[1]-'0';
+        /*HW trigger depracated
+            tmpint=d->cmdstr[1]-'0';
             tmpint2=atoi(&(d->cmdstr[2])); //extract channel number which starts at D2
-	    //Dprintf("Trigger input %d val %d\n\r",tmpint2,tmpint);
+            //Dprintf("Trigger input %d val %d\n\r",tmpint2,tmpint);
             if((tmpint2>=2)&&(tmpint>=0)&&(tmpint<=4)){
               d->triggered=false;  
               switch(tmpint){
-	        case 0: d->lvl0mask|=1<<(tmpint2-2);break;
-	        case 1: d->lvl1mask|=1<<(tmpint2-2);break;
-	        case 2: d->risemask|=1<<(tmpint2-2);break;
-	        case 3: d->fallmask|=1<<(tmpint2-2);break;
-	        default: d->chgmask|=1<<(tmpint2-2);break;
-	      }
+                case 0: d->lvl0mask|=1<<(tmpint2-2);break;
+                case 1: d->lvl1mask|=1<<(tmpint2-2);break;
+                case 2: d->risemask|=1<<(tmpint2-2);break;
+                case 3: d->fallmask|=1<<(tmpint2-2);break;
+                default: d->chgmask|=1<<(tmpint2-2);break;
+              }
               //Dprintf("Trigger channel %d val %d 0x%X\n\r",tmpint2,tmpint,d->lvl0mask);
-	      //Dprintf("LVL0mask 0x%X\n\r",d->lvl0mask);
+              //Dprintf("LVL0mask 0x%X\n\r",d->lvl0mask);
               //Dprintf("LVL1mask 0x%X\n\r",d->lvl1mask);
               //Dprintf("risemask 0x%X\n\r",d->risemask);
               //Dprintf("fallmask 0x%X\n\r",d->fallmask);
               //Dprintf("edgemask 0x%X\n\r",d->chgmask);
             }else{
-	      Dprintf("bad trigger channel %d val %d\n\r",tmpint2,tmpint);
+              Dprintf("bad trigger channel %d val %d\n\r",tmpint2,tmpint);
               d->triggered=true;
             }
-	*/
+        */
             ret=1;
             break;
       case 'p': //pretrigger count
@@ -302,7 +330,7 @@ int process_char(sr_device_t *d,char charin){
             Dprintf("Command overflow %s\n\r",d->cmdstr);
             d->cmdstrptr=0;
           }
-          d->cmdstr[d->cmdstrptr++]=charin;
+          d->cmdstr[(int)d->cmdstrptr++]=charin;
           ret=0;
        }//else
 //default return 0 means to not send any kind of response

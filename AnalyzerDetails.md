@@ -1,6 +1,20 @@
 Running sigrok cli or pulseview at debug level 2 is highly recommended to see reported issues with user configurations.
 
-![alt text](https://github.com/pico-coder/sigrok-pico/blob/main/PICO_Sigrok_Rates.PNG)
+The sample rates are different from the original code.
+
+IMG here
+
+The maximum sample rate is determined by the number of analogue and digital channels enabled and the total number of samples to be collected in a single run.
+
+PIO: The programmable IO runs at a maximum 240MHz clock speed.
+
+USB: The USB transfer rate which varies from 400-800KB/sec depending on the host computer. Since the USB bandwidth varies per host, so will the maximum sample rate for USB-limited cases.
+
+USB w/ RLE: Run Length Encoded compression can reduce the number of bytes sent for digital-only captures, increasing the effective data rate when the input levels are stable.
+ 
+ADC: The maximum ADC converter rate is 2.4Msps, shared between each enabled ADC channel
+
+
 ## Channels
 
 ### 21 Digital Channels 
@@ -11,7 +25,7 @@ Any combinations of A0 (ADC0 pin 31),A1(ADC1 pin 32) and A2(ADC2 pin 34) can be 
 Channels are only 7 bit accurate because:
     1) Even though the ADC gives a 12 bit value, the ENOB of the RP2040 is only ~8 bits.
     2) 7 bits makes an easy wire encoding that avoids ASCII characters that can be messed up by serial drivers (see SerialProtocol.md)
-    3) 7 bits still gives 20mV accuracy and 128 divisions which is usually plenty of separation.
+    3) 7 bits still gives 25mV accuracy and 128 divisions which is usually plenty of separation.
 
 ### Disabling channels
 Note that disabling any unused channels will often reduce serial transfer overhead and allocate more trace storage for the enabled signals, so always disabled unused channels.
@@ -71,13 +85,13 @@ The PIO and ADC share a common sample rate.  This is because libsigrok only supp
 The sample rate granularity is limited to the a granularity of the clock divisors of the PIO and ADC.  The ADC uses only the integer part of the fractional divisor of the 48Mhz USB clock.
 The PIO uses the full fractional divisor of the sysclk which is set to 120Mhz (the maximum supported PIO rate). 
 Pulseview only provides frequencies which yield integer divisors for the PIO and ADC clocks to ensure that the two clocks do not drift over time which can happen with non integer divisors.  
-The command line interface will allow any specified frequency. It is recommended that for digital modes that integer divisors of 120Mhz be specified to get sample rates close to what is specified (i.e. 120,60,40,30,20,15,12,10Msps etc).
+The command line interface will allow any specified frequency. It is recommended that for digital modes that integer divisors of 240Mhz be specified to get sample rates close to what is specified (i.e. 120,60,40,30,20,15,12,10Msps etc).
 As the sample rate is decreased the granularity increases.
-Since the ADC has a maximum frequency of 500khz off a 48Mhz clock it has a minimum divisor of 96 and thus a worst case granularity of 5khz.
+Since the ADC has a maximum frequency of 2.4MHz off the CPU clock it has a minimum divisor of 96 and thus a worst case granularity of 5khz.
 ### Min and Max Sample rates.
-The minimum sample rate is 5Khz to ensure the sample rate is within the 16 bit divisor.  
-The maximum sample rate for digital only is 120Msps.  
-If 8 or more digital channels are enabled sample rates of 60Msps or less are recommended to allow the DMA engine to do a read modify write operation from the PIO FIFO to memory.  
+The minimum sample rate is 5Khz (10kHz?) to ensure the sample rate is within the 16 bit divisor.  
+The maximum sample rate for digital only is 240Msps.  
+If 8 or more digital channels are enabled sample rates of 120Msps or less are recommended to allow the DMA engine to do a read modify write operation from the PIO FIFO to memory.  
 Faster rates might work, or they might not...
 ## Sample rate soft limits
 Soft limits are hard to quantify because they can be based on the maximum USB link bandwidth, or the ability of the device to process and send samples, or on the ability of the host to process samples (especially in SW trigger modes).
