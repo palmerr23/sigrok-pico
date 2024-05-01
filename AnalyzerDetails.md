@@ -2,7 +2,8 @@ Running sigrok cli or pulseview at debug level 2 is highly recommended to see re
 
 The sample rates are different from the original code.
 
-IMG here
+![PICO_Sigrok_Rates](https://github.com/palmerr23/sigrok-pico/assets/14856369/27b85691-3b05-4171-a3a3-167c8c812290)
+
 
 The maximum sample rate is determined by the number of analogue and digital channels enabled and the total number of samples to be collected in a single run.
 
