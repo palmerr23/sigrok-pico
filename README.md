@@ -1,9 +1,10 @@
 This is a fork of https://github.com/pico-coder/sigrok-pico with the following changes:
-Offsets the ADC voltage to change the PulseView display to display 1/2scale (0x40) as 0V. The change is to accommodate the input conditioning hardware developed for Silicon Chip magazine.
 
-The ADC sample rate has been increased to 2.4MHz using the approach described in https://forums.raspberrypi.com/viewtopic.php?t=365702
+•	Offsets the ADC voltage to change the PulseView display to display 1/2scale (0x40) as 0V. The change is to accommodate the input conditioning hardware developed for Silicon Chip magazine.
 
-The maximum digial sample rate has been increased to 240MHz by enabling options in the original code.
+•	The ADC sample rate has been increased to 2.4MHz using the approach described in https://forums.raspberrypi.com/viewtopic.php?t=365702
+
+•	The maximum digial sample rate has been increased to 240MHz by enabling options in the original code.
 
 Please DO NOT offer pull requests to this fork, it may be updated from time to time from the main repo.
 
